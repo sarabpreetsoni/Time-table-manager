@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Timetable Manager - Secure Auth</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase JS Client Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .dark ::-webkit-scrollbar-thumb { background: #475569; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        * { transition-property: background-color, border-color, color; transition-duration: 200ms; }
+    </style>
+</head>
+<body class="bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 antialiased overflow-hidden flex flex-col h-screen">
+
+    <!-- Toast Notification System -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- Sync Indicator Banner -->
+    <div id="sync-indicator" class="fixed bottom-2 right-2 z-50 bg-slate-800 text-white text-[10px] px-3 py-1 rounded-full shadow-lg opacity-75 transition-opacity pointer-events-none">
+        Connecting to Supabase...
+    </div>
+
+    <!-- HEADER SECTION -->
+    <header class="bg-indigo-600 dark:bg-slate-950 text-white px-4 py-2.5 shadow-md flex justify-between items-center z-20 shrink-0">
+        <div>
+            <h1 class="text-base font-bold leading-tight">Timetable manager</h1>
+            <p class="text-[10px] text-indigo-200" id="user-email-display">Not signed in</p>
+        </div>
+        <div class="flex items-center gap-1.5">
+            <!-- User Login Icon / Button -->
+            <button onclick="openAuthModal()" id="auth-btn" class="px-2.5 py-1 text-xs bg-indigo-700 dark:bg-slate-800 rounded-md hover:bg-indigo-800 transition font-medium flex items-center gap-1">
+                <span>👤</span> <span id="auth-btn-text" class="hidden sm:inline">Login</span>
+            </button>
+            <button onclick="toggleTheme()" class="px-2.5 py-1 text-xs bg-indigo-700 dark:bg-slate-800 rounded-md hover:bg-indigo-800 transition font-medium">
+                🌙/☀️
+            </button>
+            <button onclick="toggleAppView()" id="toggle-view-btn" class="bg-teal-500 hover:bg-teal-600 px-2.5 py-1 rounded-md text-xs font-bold shadow-sm transition">
+                Edit Schedule
+            </button>
+            <button onclick="openManageModal()" id="manage-staff-btn" class="bg-white text-indigo-600 hover:bg-indigo-50 px-2.5 py-1 rounded-md text-xs font-bold shadow-sm transition">
+                Staff Directory
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN APP WRAPPER (SPLIT INTO UPPER & LOWER HALVES) -->
+    <div id="dashboard-view" class="flex flex-col h-[calc(100vh-53px)] p-2 gap-2 overflow-hidden">
+        
+        <!-- ========================================== -->
+        <!-- UPPER HALF: TEACHERS & WORKLOAD            -->
+        <!-- ========================================== -->
+        <div class="h-1/2 flex flex-col bg-white dark:bg-slate-800 rounded-xl shadow border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <div class="px-3 py-2 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex justify-between items-center shrink-0">
+                <h2 class="font-bold text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Staff Status & Workload</h2>
+                <div class="text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 px-2.5 py-0.5 rounded-full uppercase" id="active-day-badge">Monday</div>
+            </div>
+            <div class="flex-1 overflow-y-auto p-2">
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2" id="teacher-list"></div>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- LOWER HALF: PERIOD ADJUSTMENT & TIMETABLE  -->
+        <!-- ========================================== -->
+        <div class="h-1/2 flex flex-col bg-white dark:bg-slate-800 rounded-xl shadow border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <!-- Day Selector Tabs -->
+            <div class="px-3 py-1.5 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex gap-1.5 overflow-x-auto whitespace-nowrap shrink-0" id="day-selector"></div>
+            
+            <!-- Periods & Substitution Matrix Grid -->
+            <div class="flex-1 overflow-y-auto p-2.5">
+                <div id="timetable-container" class="space-y-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PAGE 2: TIMETABLE EDITOR MENU -->
+    <div id="editor-view" class="hidden flex-col h-[calc(100vh-53px)] p-4">
+        <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 flex-1 flex flex-col overflow-hidden">
+            <div class="p-6 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                <div>
+                    <h2 class="font-bold text-2xl">Select Teacher to Edit</h2>
+                    <p class="text-slate-500 text-sm">Tap a teacher to open their weekly schedule editor.</p>
+                </div>
+                <button onclick="exportData()" class="px-3 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 rounded-lg text-xs font-bold transition">Export Backup</button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-6">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="editor-teacher-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FULL SCREEN MODAL: TEACHER EDITOR -->
+    <div id="fullScreenEditor" class="fixed inset-x-0 bottom-0 top-14 bg-white dark:bg-slate-900 z-50 hidden flex-col rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.2)] border-t border-slate-200 dark:border-slate-700 transform translate-y-full transition-transform duration-300">
+        <div class="p-4 flex justify-between items-center border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
+            <button onclick="closeFullScreenEditor()" class="px-4 py-2 bg-slate-200 dark:bg-slate-700 rounded-lg font-bold text-sm">Cancel</button>
+            <div class="text-center">
+                <h2 class="font-bold text-xl" id="fs-editor-name">Teacher Name</h2>
+                <p class="text-xs text-indigo-500 font-bold uppercase">Editing Weekly Schedule</p>
+            </div>
+            <button onclick="saveFullScreenEditor()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-sm">Save Changes</button>
+        </div>
+        <div class="border-b border-slate-200 dark:border-slate-700 flex overflow-x-auto p-2 gap-2 bg-slate-50/50 dark:bg-slate-950" id="fs-editor-days"></div>
+        <div class="flex-1 overflow-y-auto p-4 pb-24 bg-slate-100 dark:bg-slate-950">
+            <div class="max-w-3xl mx-auto space-y-4" id="fs-editor-periods"></div>
+        </div>
+    </div>
+
+    <!-- MODAL: MANAGE STAFF DIRECTORY -->
+    <div id="manageModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex-col items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-700">
+            <div class="p-4 bg-slate-800 dark:bg-slate-950 text-white flex justify-between items-center">
+                <h2 class="text-xl font-bold">Staff Directory Management</h2>
+                <button onclick="closeManageModal()" class="px-3 py-1 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-medium">Close</button>
+            </div>
+            <div class="p-4 bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+                <div class="flex flex-col sm:flex-row gap-2">
+                    <input type="text" id="new-name" placeholder="Teacher Full Name (e.g., Dr. Patel)" class="bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg p-2.5 flex-1 outline-none text-sm">
+                    <input type="text" id="new-subject" placeholder="Primary Subject (e.g., Physics)" class="bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg p-2.5 flex-1 outline-none text-sm">
+                    <button onclick="addTeacher()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg font-bold text-sm transition">Add Teacher</button>
+                </div>
+            </div>
+            <div class="p-4 overflow-y-auto flex-1">
+                <div id="manage-teacher-list" class="space-y-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: AUTHENTICATION (LOGIN / SIGNUP) -->
+    <div id="authModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex-col items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-4 border border-slate-200 dark:border-slate-700">
+            <div class="flex justify-between items-center">
+                <h2 id="auth-modal-title" class="text-xl font-bold">User Authentication</h2>
+                <button onclick="closeAuthModal()" class="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-bold">Close</button>
+            </div>
+            <div id="auth-user-info" class="hidden flex-col gap-3">
+                <p class="text-sm text-slate-600 dark:text-slate-300">Signed in as: <strong id="logged-user-email"></strong></p>
+                <button onclick="handleSignOut()" class="w-full bg-rose-600 hover:bg-rose-700 text-white p-2.5 rounded-lg font-bold text-sm transition">Sign Out</button>
+            </div>
+            <div id="auth-form-container" class="flex flex-col gap-3">
+                <input type="email" id="auth-email" placeholder="Email Address" class="p-3 border rounded-lg bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-sm outline-none">
+                <input type="password" id="auth-password" placeholder="Password (min 6 characters)" class="p-3 border rounded-lg bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-sm outline-none">
+                <div class="flex gap-2 mt-2">
+                    <button onclick="handleSignIn()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white p-2.5 rounded-lg font-bold text-sm transition">Sign In</button>
+                    <button onclick="handleSignUp()" class="flex-1 bg-teal-600 hover:bg-teal-700 text-white p-2.5 rounded-lg font-bold text-sm transition">Sign Up</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT & SUPABASE INTEGRATION -->
+    <script>
+        const SUPABASE_URL = 'YOUR_SUPABASE_URL_HERE';
+        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY_HERE';
+
+        let supabaseClient = null;
+        if (SUPABASE_URL !== 'YOUR_SUPABASE_URL_HERE') {
+            supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        }
+
+        const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const PERIODS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8'];
+        
+        let currentDay = 'Monday';
+        let teachers = []; 
+        let masterSchedule = {}; 
+        let leaves = {}; 
+        let substitutions = {}; 
+
+        let isEditorMode = false;
+        let editorActiveTeacherId = null;
+        let editorActiveDay = 'Monday';
+        let editorTempSchedule = {};
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            let bgClass = 'bg-slate-800 text-white';
+            if (type === 'success') bgClass = 'bg-emerald-600 text-white';
+            if (type === 'error') bgClass = 'bg-rose-600 text-white';
+            
+            toast.className = `${bgClass} px-4 py-3 rounded-xl shadow-xl text-sm font-medium transform translate-y-2 opacity-0 transition-all duration-300 pointer-events-auto flex items-center justify-between min-w-[260px]`;
+            toast.innerHTML = `<span>${message}</span>`;
+            container.appendChild(toast);
+            
+            setTimeout(() => toast.classList.remove('translate-y-2', 'opacity-0'), 10);
+            setTimeout(() => {
+                toast.classList.add('translate-y-2', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function updateSyncStatus(status, isError = false) {
+            const indicator = document.getElementById('sync-indicator');
+            indicator.innerText = status;
+            indicator.className = `fixed bottom-2 right-2 z-50 text-[10px] px-3 py-1 rounded-full shadow-lg transition-opacity ${isError ? 'bg-rose-600 text-white' : 'bg-slate-800 text-white'}`;
+        }
+
+        // Auth Modal Controls
+        function openAuthModal() {
+            document.getElementById('authModal').style.display = 'flex';
+        }
+
+        function closeAuthModal() {
+            document.getElementById('authModal').style.display = 'none';
+        }
+
+        async function handleSignUp() {
+            if (!supabaseClient) return showToast("Supabase is not configured!", "error");
+            const email = document.getElementById('auth-email').value.trim();
+            const password = document.getElementById('auth-password').value.trim();
+            if (!email || !password) return showToast("Enter email and password", "error");
+
+            const { data, error } = await supabaseClient.auth.signUp({ email, password });
+            if (error) {
+                showToast(error.message, "error");
+            } else {
+                showToast("Sign up successful! You can now sign in.", "success");
+            }
+        }
+
+        async function handleSignIn() {
+            if (!supabaseClient) return showToast("Supabase is not configured!", "error");
+            const email = document.getElementById('auth-email').value.trim();
+            const password = document.getElementById('auth-password').value.trim();
+            if (!email || !password) return showToast("Enter email and password", "error");
+
+            const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+            if (error) {
+                showToast(error.message, "error");
+            } else {
+                showToast("Signed in successfully!", "success");
+                closeAuthModal();
+                checkUserSession();
+            }
+        }
+
+        async function handleSignOut() {
+            if (!supabaseClient) return;
+            await supabaseClient.auth.signOut();
+            showToast("Signed out", "info");
+            closeAuthModal();
+            checkUserSession();
+        }
+
+        async function checkUserSession() {
+            if (!supabaseClient) return;
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            const emailDisplay = document.getElementById('user-email-display');
+            const authBtnText = document.getElementById('auth-btn-text');
+            const userInfo = document.getElementById('auth-user-info');
+            const authForm = document.getElementById('auth-form-container');
+            const loggedEmail = document.getElementById('logged-user-email');
+
+            if (session && session.user) {
+                emailDisplay.innerText = session.user.email;
+                authBtnText.innerText = "Account";
+                userInfo.style.display = 'flex';
+                authForm.style.display = 'none';
+                loggedEmail.innerText = session.user.email;
+            } else {
+                emailDisplay.innerText = "Not signed in";
+                authBtnText.innerText = "Login";
+                userInfo.style.display = 'none';
+                authForm.style.display = 'flex';
+            }
+        }
+
+        function getDefaultData() {
+            let defTeachers = [
+                { id: 't1', name: 'Mr. Sharma', defaultSubject: 'Math' },
+                { id: 't2', name: 'Mrs. Gupta', defaultSubject: 'Science' },
+                { id: 't3', name: 'Mr. Singh', defaultSubject: 'English' },
+                { id: 't4', name: 'Ms. Verma', defaultSubject: 'History' }
+            ];
+
+            let defSchedule = {};
+            defTeachers.forEach(teacher => {
+                defSchedule[teacher.id] = {};
+                DAYS.forEach(day => {
+                    defSchedule[teacher.id][day] = {};
+                    PERIODS.forEach(period => {
+                        defSchedule[teacher.id][day][period] = { className: "Class IX", subject: teacher.defaultSubject };
+                    });
+                });
+            });
+            return { teachers: defTeachers, masterSchedule: defSchedule };
+        }
+
+        async function loadData() {
+            DAYS.forEach(day => {
+                leaves[day] = [];
+                substitutions[day] = {};
+            });
+
+            if (!supabaseClient) {
+                updateSyncStatus('Using Local Cache (Supabase not configured)', true);
+                const savedTeachers = localStorage.getItem('app_teachers');
+                const savedSchedule = localStorage.getItem('app_schedule');
+                if (savedTeachers && savedSchedule) {
+                    teachers = JSON.parse(savedTeachers);
+                    masterSchedule = JSON.parse(savedSchedule);
+                } else {
+                    const def = getDefaultData();
+                    teachers = def.teachers;
+                    masterSchedule = def.masterSchedule;
+                }
+                refreshDashboard();
+                return;
+            }
+
+            checkUserSession();
+
+            try {
+                updateSyncStatus('Syncing with Supabase...');
+                const { data, error } = await supabaseClient
+                    .from('app_config')
+                    .select('*')
+                    .in('key', ['teachers', 'masterSchedule']);
+
+                if (error) throw error;
+
+                let tData = data.find(row => row.key === 'teachers');
+                let sData = data.find(row => row.key === 'masterSchedule');
+
+                if (tData && sData) {
+                    teachers = tData.value;
+                    masterSchedule = sData.value;
+                } else {
+                    const def = getDefaultData();
+                    teachers = def.teachers;
+                    masterSchedule = def.masterSchedule;
+                    await saveData();
+                }
+
+                updateSyncStatus('Synced with Supabase ✓');
+                refreshDashboard();
+            } catch (err) {
+                console.error("Supabase load error:", err);
+                updateSyncStatus('Sync Error - Falling back locally', true);
+                const savedTeachers = localStorage.getItem('app_teachers');
+                const savedSchedule = localStorage.getItem('app_schedule');
+                if (savedTeachers && savedSchedule) {
+                    teachers = JSON.parse(savedTeachers);
+                    masterSchedule = JSON.parse(savedSchedule);
+                } else {
+                    const def = getDefaultData();
+                    teachers = def.teachers;
+                    masterSchedule = def.masterSchedule;
+                }
+                refreshDashboard();
+            }
+        }
+
+        async function saveData() {
+            localStorage.setItem('app_teachers', JSON.stringify(teachers));
+            localStorage.setItem('app_schedule', JSON.stringify(masterSchedule));
+
+            if (!supabaseClient) return;
+
+            try {
+                updateSyncStatus('Saving changes...');
+                const { error } = await supabaseClient
+                    .from('app_config')
+                    .upsert([
+                        { key: 'teachers', value: teachers },
+                        { key: 'masterSchedule', value: masterSchedule }
+                    ], { onConflict: 'key' });
+
+                if (error) throw error;
+                updateSyncStatus('Synced with Supabase ✓');
+            } catch (err) {
+                console.error("Supabase save error:", err);
+                updateSyncStatus('Save failed (Saved locally)', true);
+            }
+        }
+
+        function exportData() {
+            const data = { teachers, masterSchedule };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'timetable-backup.json';
+            a.click();
+            showToast("Backup exported successfully!", "success");
+        }
+
+        function getFreeTeachers(day, period) {
+            let freeTeachers = [];
+            teachers.forEach(teacher => {
+                if (leaves[day].includes(teacher.id)) return; 
+
+                let isTeachingRegularClass = false;
+                let theirSlot = masterSchedule[teacher.id]?.[day]?.[period];
+                if (theirSlot && theirSlot.className !== "") {
+                    isTeachingRegularClass = true;
+                }
+
+                let isAlreadySubbing = false;
+                if (substitutions[day][period]) {
+                    Object.values(substitutions[day][period]).forEach(subTeacherId => {
+                        if (subTeacherId === teacher.id) isAlreadySubbing = true;
+                    });
+                }
+
+                let activeClassesToday = 0;
+                PERIODS.forEach(p => {
+                    let slot = masterSchedule[teacher.id]?.[day]?.[p];
+                    if (slot && slot.className !== "") activeClassesToday++;
+                });
+                
+                let subCountToday = 0;
+                PERIODS.forEach(p => {
+                    if (substitutions[day][p]) {
+                        Object.values(substitutions[day][p]).forEach(subId => {
+                            if (subId === teacher.id) subCountToday++;
+                        });
+                    }
+                });
+
+                let maxFreePeriods = PERIODS.length - activeClassesToday;
+                let isOverloaded = (maxFreePeriods - subCountToday <= 0);
+
+                if (!isTeachingRegularClass && !isAlreadySubbing && !isOverloaded) {
+                    freeTeachers.push(teacher);
+                }
+            });
+            return freeTeachers;
+        }
+
+        function renderDaySelector() {
+            let html = "";
+            DAYS.forEach(day => {
+                let colorClass = (day === currentDay) ? "bg-indigo-600 text-white shadow" : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300";
+                html += `<button onclick="changeDay('${day}')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 ${colorClass}">${day}</button>`;
+            });
+            document.getElementById('day-selector').innerHTML = html;
+            document.getElementById('active-day-badge').innerText = currentDay;
+        }
+
+        function renderTeacherList() {
+            let html = "";
+            teachers.forEach(teacher => {
+                let isOnLeave = leaves[currentDay].includes(teacher.id);
+                let activeClasses = 0;
+                PERIODS.forEach(p => {
+                    if (masterSchedule[teacher.id]?.[currentDay]?.[p]?.className !== "") activeClasses++;
+                });
+                let subsToday = 0;
+                PERIODS.forEach(p => {
+                    if (substitutions[currentDay][p]) {
+                        Object.values(substitutions[currentDay][p]).forEach(id => { if (id === teacher.id) subsToday++; });
+                    }
+                });
+                let freeLeft = (PERIODS.length - activeClasses) - subsToday;
+
+                let cardColor = isOnLeave 
+                    ? "bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/50" 
+                    : "bg-slate-50 dark:bg-slate-700/40 border-slate-200 dark:border-slate-700";
+                
+                let statusText = isOnLeave 
+                    ? `<span class="text-rose-600 dark:text-rose-400 text-[10px] font-bold uppercase tracking-wider">On Leave</span>` 
+                    : `<span class="text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider">${freeLeft} Free Periods</span>`;
+                
+                html += `
+                <div class="flex items-center justify-between p-2.5 rounded-xl border ${cardColor} transition-all">
+                    <div>
+                        <div class="font-bold text-xs text-slate-800 dark:text-slate-100">${teacher.name}</div>
+                        <div class="text-[9px] text-slate-400 font-semibold mb-0.5">${teacher.defaultSubject}</div>
+                        ${statusText}
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer scale-90">
+                        <input type="checkbox" class="sr-only peer" ${isOnLeave ? 'checked' : ''} onchange="toggleLeave('${teacher.id}')">
+                        <div class="w-9 h-5 bg-slate-300 dark:bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-500"></div>
+                    </label>
+                </div>`;
+            });
+            document.getElementById('teacher-list').innerHTML = html;
+        }
+
+        function renderTimetable() {
+            let html = "";
+            PERIODS.forEach(period => {
+                let classesInThisPeriodHTML = "";
+                teachers.forEach(teacher => {
+                    let slot = masterSchedule[teacher.id]?.[currentDay]?.[period];
+                    if (slot && slot.className !== "") {
+                        let className = slot.className;
+                        let subject = slot.subject;
+                        let isOriginalTeacherOnLeave = leaves[currentDay].includes(teacher.id);
+                        
+                        if (isOriginalTeacherOnLeave) {
+                            let subTeacherId = null;
+                            if (substitutions[currentDay][period]) {
+                                subTeacherId = substitutions[currentDay][period][className];
+                            }
+
+                            if (subTeacherId) {
+                                let subTeacher = teachers.find(t => t.id === subTeacherId) || { name: 'Unknown' };
+                                classesInThisPeriodHTML += `
+                                <div class="bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 p-2.5 rounded-xl relative shadow-sm">
+                                    <div class="absolute top-0 right-0 bg-teal-500 text-white text-[9px] px-2 py-0.5 rounded-bl-lg font-bold">COVERED</div>
+                                    <div class="font-bold text-xs text-slate-800 dark:text-slate-100">${className}</div>
+                                    <div class="text-[11px] text-teal-700 dark:text-teal-300 font-bold mt-0.5">Sub: ${subTeacher.name}</div>
+                                    <button onclick="removeSubstitution('${period}', '${className}')" class="mt-1 text-[10px] bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-300 px-2 py-0.5 rounded font-bold hover:bg-rose-200 transition">Remove Sub</button>
+                                </div>`;
+                            } else {
+                                let freeTeachers = getFreeTeachers(currentDay, period);
+                                let subButtonsHTML = freeTeachers.map(ft => `
+                                    <button onclick="assignSubstitution('${period}', '${className}', '${ft.id}')" class="text-[11px] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-2 py-1 rounded mt-0.5 text-left w-full hover:bg-indigo-50 dark:hover:bg-indigo-900/40 font-bold text-indigo-600 dark:text-indigo-400 transition truncate">
+                                        + Assign ${ft.name}
+                                    </button>
+                                `).join('');
+
+                                if (freeTeachers.length === 0) {
+                                    subButtonsHTML = `<div class="text-[10px] text-rose-500 font-bold mt-1">No free teachers!</div>`;
+                                }
+
+                                classesInThisPeriodHTML += `
+                                <div class="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 p-2.5 rounded-xl shadow-sm">
+                                    <div class="font-bold text-xs text-slate-800 dark:text-slate-100">${className}</div>
+                                    <div class="text-[11px] text-rose-500 line-through">${teacher.name} (Absent)</div>
+                                    <div class="mt-1.5 space-y-1">${subButtonsHTML}</div>
+                                </div>`;
+                            }
+                        } else {
+                            classesInThisPeriodHTML += `
+                            <div class="bg-white dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl shadow-sm">
+                                <div class="font-bold text-xs text-slate-800 dark:text-slate-100">${className}</div>
+                                <div class="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">${teacher.name}</div>
+                                <div class="text-[9px] text-indigo-500 dark:text-indigo-400 font-bold uppercase mt-0.5">${subject}</div>
+                            </div>`;
+                        }
+                    }
+                });
+
+                if (classesInThisPeriodHTML) {
+                    html += `
+                    <div class="border-b border-slate-100 dark:border-slate-700/50 pb-3 mb-3">
+                        <div class="bg-slate-200 dark:bg-slate-700 px-3 py-1 rounded-lg inline-block font-bold text-xs mb-2">${period}</div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
+                            ${classesInThisPeriodHTML}
+                        </div>
+                    </div>`;
+                }
+            });
+            document.getElementById('timetable-container').innerHTML = html || '<div class="text-center text-xs text-slate-400 py-4">No classes scheduled for this day.</div>';
+        }
+
+        function refreshDashboard() {
+            renderDaySelector();
+            renderTeacherList();
+            renderTimetable();
+        }
+
+        function changeDay(day) {
+            currentDay = day;
+            refreshDashboard();
+        }
+
+        function toggleLeave(teacherId) {
+            let index = leaves[currentDay].indexOf(teacherId);
+            if (index === -1) {
+                leaves[currentDay].push(teacherId);
+                showToast("Teacher marked on leave for " + currentDay, "info");
+            } else {
+                leaves[currentDay].splice(index, 1);
+                showToast("Teacher leave status removed", "info");
+            }
+            PERIODS.forEach(period => {
+                if (substitutions[currentDay][period]) {
+                    Object.keys(substitutions[currentDay][period]).forEach(className => {
+                        if (substitutions[currentDay][period][className] === teacherId) {
+                            delete substitutions[currentDay][period][className];
+                        }
+                    });
+                }
+            });
+            refreshDashboard();
+        }
+
+        function assignSubstitution(period, className, substituteId) {
+            if (!substitutions[currentDay][period]) {
+                substitutions[currentDay][period] = {};
+            }
+            substitutions[currentDay][period][className] = substituteId;
+            showToast("Substitution assigned!", "success");
+            refreshDashboard();
+        }
+
+        function removeSubstitution(period, className) {
+            delete substitutions[currentDay][period][className];
+            showToast("Substitution removed", "info");
+            refreshDashboard();
+        }
+
+        function toggleAppView() {
+            isEditorMode = !isEditorMode;
+            if (isEditorMode) {
+                document.getElementById('dashboard-view').style.display = 'none';
+                document.getElementById('editor-view').style.display = 'flex';
+                document.getElementById('toggle-view-btn').innerText = "Dashboard";
+                renderEditorMenu();
+            } else {
+                document.getElementById('dashboard-view').style.display = 'flex';
+                document.getElementById('editor-view').style.display = 'none';
+                document.getElementById('toggle-view-btn').innerText = "Edit Schedule";
+                refreshDashboard();
+            }
+        }
+
+        function renderEditorMenu() {
+            let html = teachers.map(t => `
+                <div onclick="openFullScreenEditor('${t.id}')" class="bg-slate-50 dark:bg-slate-700/50 p-5 rounded-2xl cursor-pointer hover:bg-indigo-50 dark:hover:bg-slate-700 transition text-center border border-slate-200 dark:border-slate-600 shadow-sm flex flex-col items-center justify-center">
+                    <h3 class="font-bold text-lg">${t.name}</h3>
+                    <p class="text-xs text-indigo-500 font-semibold mt-1">${t.defaultSubject}</p>
+                    <span class="mt-3 text-[10px] bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-300 px-3 py-1 rounded-full font-bold">Edit Weekly Schedule</span>
+                </div>
+            `).join('');
+            document.getElementById('editor-teacher-grid').innerHTML = html;
+        }
+
+        function openFullScreenEditor(teacherId) {
+            editorActiveTeacherId = teacherId;
+            editorActiveDay = currentDay;
+            editorTempSchedule = JSON.parse(JSON.stringify(masterSchedule[teacherId] || {}));
+            
+            let teacher = teachers.find(t => t.id === teacherId);
+            document.getElementById('fs-editor-name').innerText = teacher.name;
+            
+            renderEditorDays();
+            renderEditorPeriods();
+
+            document.getElementById('fullScreenEditor').style.display = 'flex';
+            setTimeout(() => {
+                document.getElementById('fullScreenEditor').classList.remove('translate-y-full');
+            }, 10);
+        }
+
+        function closeFullScreenEditor() {
+            document.getElementById('fullScreenEditor').classList.add('translate-y-full');
+            setTimeout(() => {
+                document.getElementById('fullScreenEditor').style.display = 'none';
+            }, 300);
+        }
+
+        function renderEditorDays() {
+            let html = DAYS.map(day => `
+                <button onclick="setEditorDay('${day}')" class="px-4 py-2 rounded-xl font-bold min-w-[100px] text-sm transition ${editorActiveDay === day ? 'bg-indigo-600 text-white shadow' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'}">${day}</button>
+            `).join('');
+            document.getElementById('fs-editor-days').innerHTML = html;
+        }
+
+        function setEditorDay(day) {
+            editorActiveDay = day;
+            renderEditorDays();
+            renderEditorPeriods();
+        }
+
+        function renderEditorPeriods() {
+            if (!editorTempSchedule[editorActiveDay]) {
+                editorTempSchedule[editorActiveDay] = {};
+                PERIODS.forEach(p => editorTempSchedule[editorActiveDay][p] = { className: '', subject: '' });
+            }
+
+            let html = PERIODS.map(period => {
+                let slot = editorTempSchedule[editorActiveDay][period] || { className: '', subject: '' };
+                return `
+                <div class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col md:flex-row gap-3 items-center">
+                    <div class="font-bold bg-slate-100 dark:bg-slate-700 px-4 py-2 rounded-lg text-sm w-full md:w-auto text-center">${period}</div>
+                    <input type="text" placeholder="Class (e.g. Class X, leave blank if free)" value="${slot.className}" oninput="updateEditorInput('${period}', 'className', this.value)" class="flex-1 p-3 text-sm border rounded-lg bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 outline-none w-full">
+                    <input type="text" placeholder="Subject (e.g. Mathematics)" value="${slot.subject}" oninput="updateEditorInput('${period}', 'subject', this.value)" class="flex-1 p-3 text-sm border rounded-lg bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 outline-none w-full">
+                </div>
+                `;
+            }).join('');
+            document.getElementById('fs-editor-periods').innerHTML = html;
+        }
+
+        function updateEditorInput(period, field, value) {
+            if (!editorTempSchedule[editorActiveDay]) editorTempSchedule[editorActiveDay] = {};
+            if (!editorTempSchedule[editorActiveDay][period]) editorTempSchedule[editorActiveDay][period] = { className: '', subject: '' };
+            editorTempSchedule[editorActiveDay][period][field] = value;
+        }
+
+        async function saveFullScreenEditor() {
+            masterSchedule[editorActiveTeacherId] = JSON.parse(JSON.stringify(editorTempSchedule));
+            await saveData();
+            currentDay = editorActiveDay;
+            closeFullScreenEditor();
+            showToast("Schedule updated & saved to Supabase!", "success");
+            refreshDashboard();
+        }
+
+        function openManageModal() {
+            document.getElementById('manageModal').style.display = 'flex';
+            renderManageList();
+        }
+
+        function closeManageModal() {
+            document.getElementById('manageModal').style.display = 'none';
+        }
+
+        async function addTeacher() {
+            let name = document.getElementById('new-name').value.trim();
+            let subject = document.getElementById('new-subject').value.trim() || "General";
+            if(!name) {
+                showToast("Please enter a teacher name!", "error");
+                return;
+            }
+            
+            let newId = 't' + Date.now();
+            teachers.push({ id: newId, name: name, defaultSubject: subject });
+            
+            masterSchedule[newId] = {};
+            DAYS.forEach(day => {
+                masterSchedule[newId][day] = {};
+                PERIODS.forEach(period => masterSchedule[newId][day][period] = { className: "Class IX", subject: subject });
+            });
+
+            document.getElementById('new-name').value = '';
+            document.getElementById('new-subject').value = '';
+            await saveData();
+            renderManageList();
+            refreshDashboard();
+            showToast("Teacher added to database!", "success");
+        }
+
+        async function deleteTeacher(id) {
+            if (teachers.length <= 1) {
+                showToast("You must keep at least one teacher.", "error");
+                return;
+            }
+            if (confirm("Are you sure you want to delete this teacher?")) {
+                teachers = teachers.filter(t => t.id !== id);
+                delete masterSchedule[id];
+                await saveData();
+                renderManageList();
+                refreshDashboard();
+                showToast("Teacher removed", "info");
+            }
+        }
+
+        function renderManageList() {
+            let html = teachers.map(t => `
+                <div class="flex justify-between items-center p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <div>
+                        <span class="font-bold text-slate-800 dark:text-slate-100">${t.name}</span> 
+                        <span class="text-xs text-slate-500 dark:text-slate-400 ml-1">(${t.defaultSubject})</span>
+                    </div>
+                    <button onclick="deleteTeacher('${t.id}')" class="text-rose-500 font-bold bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 px-3 py-1 rounded-lg text-xs transition">Delete</button>
+                </div>
+            `).join('');
+            document.getElementById('manage-teacher-list').innerHTML = html;
+        }
+
+        function toggleTheme() {
+            document.documentElement.classList.toggle('dark');
+        }
+
+        loadData();
+    </script>
+</body>
+</html>
