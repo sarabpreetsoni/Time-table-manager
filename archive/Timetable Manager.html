@@ -159,13 +159,32 @@
 
     <!-- JAVASCRIPT & SUPABASE INTEGRATION -->
     <script>
-        const SUPABASE_URL = 'YOUR_SUPABASE_URL_HERE';
-        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY_HERE';
+        const SUPABASE_URL = 'https://pxgukzwuubvlrqetsiky.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_AoM9fhAYfnvhfwQxYscSkg_U5sUu2MK';
 
-        let supabaseClient = null;
-        if (SUPABASE_URL !== 'YOUR_SUPABASE_URL_HERE') {
-            supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // Custom fetch for new-style sb_publishable_ keys:
+        // These are opaque strings (not JWTs), so we strip the default
+        // "Authorization: Bearer <key>" header and rely on the "apikey" header instead.
+        function createSupabaseFetch(key) {
+            return (input, init) => {
+                const headers = new Headers(
+                    input instanceof Request ? input.headers : undefined
+                );
+                if (init?.headers) {
+                    new Headers(init.headers).forEach((v, k) => headers.set(k, v));
+                }
+                if (headers.get('Authorization') === `Bearer ${key}`) {
+                    headers.delete('Authorization');
+                }
+                headers.set('apikey', key);
+                return fetch(input, { ...init, headers });
+            };
         }
+
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+            global: { fetch: createSupabaseFetch(SUPABASE_ANON_KEY) },
+            auth: { persistSession: true, autoRefreshToken: true }
+        });
 
         const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         const PERIODS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8'];
